@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>正事计时器</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/login.css">
+  <link rel="stylesheet" href="css/timer.css">
+  <link rel="stylesheet" href="css/history.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+</head>
+<body>
+  <nav id="app-nav" style="display:none;">
+    <div class="nav-inner">
+      <div class="nav-brand">正事计时器</div>
+      <div class="nav-tabs">
+        <a class="nav-tab" data-page="productive">正事计时</a>
+        <a class="nav-tab" data-page="other">其它计时</a>
+        <a class="nav-tab" data-page="history">查看历史计时</a>
+      </div>
+      <a class="nav-logout" id="btn-logout">退出</a>
+    </div>
+  </nav>
+
+  <main id="app-root"></main>
+
+  <div id="toast-container"></div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/toast.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/timer-engine.js"></script>
+  <script src="js/page-login.js"></script>
+  <script src="js/page-timer.js"></script>
+  <script src="js/page-history.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
