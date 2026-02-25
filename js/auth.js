@@ -1,14 +1,10 @@
 var Auth = {
   login: function(username, password) {
-    if (Store.validateUser(username, password)) {
-      Store.setCurrentUser(username);
-      return true;
-    }
-    return false;
+    return Store.login(username, password);
   },
 
   logout: function() {
-    Store.setCurrentUser(null);
+    Store.logout();
     App.navigate('login');
   },
 

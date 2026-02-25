@@ -394,7 +394,11 @@ var PageHistory = {
 
         var save = function() {
           var newText = input.value.trim() || currentText;
-          Store.updateRecord(user, id, { description: newText });
+          if (!Store.updateRecord(user, id, { description: newText })) {
+            Toast.show(Store.getLastErrorMessage() || '更新失败');
+            input.focus();
+            return;
+          }
           if (newText !== currentText) {
             Store.addSuggestion(user, newText);
           }

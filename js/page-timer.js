@@ -284,7 +284,10 @@ var PageTimer = {
         return;
       }
       var record = engine.buildRecord(desc);
-      Store.saveRecord(user, record);
+      if (!Store.saveRecord(user, record)) {
+        Toast.show(Store.getLastErrorMessage() || '保存失败');
+        return;
+      }
       Store.addSuggestion(user, desc);
       engine.reset();
       overlay.remove();
@@ -412,7 +415,10 @@ var PageTimer = {
         pauseDuration: 0
       };
 
-      Store.saveRecord(user, record);
+      if (!Store.saveRecord(user, record)) {
+        Toast.show(Store.getLastErrorMessage() || '保存失败');
+        return;
+      }
       Store.addSuggestion(user, desc);
       overlay.remove();
       Toast.show('补充时段已保存');

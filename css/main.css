@@ -105,6 +105,11 @@ body {
   color: #fff;
 }
 
+.nav-migrate:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
 /* Main content */
 #app-root {
   max-width: 960px;

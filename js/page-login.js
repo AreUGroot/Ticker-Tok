@@ -36,10 +36,11 @@ var PageLogin = {
       Toast.show('请输入密码');
       return;
     }
-    if (Auth.login(user, pass)) {
+    var result = Auth.login(user, pass);
+    if (result && result.ok) {
       App.navigate('productive');
     } else {
-      Toast.show('密码错误');
+      Toast.show((result && result.message) || '登录失败');
     }
   }
 };
