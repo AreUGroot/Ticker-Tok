@@ -360,9 +360,10 @@ var PageHistory = {
     var html = '<h3>记录详情</h3>';
     records.forEach(function(record) {
       var timeRange = Utils.formatTime(record.startTime) + ' - ' + Utils.formatTime(record.endTime);
+      var typeBadgeClass = canEdit ? ' clickable' : '';
       var typeBadge = record.type === 'productive'
-        ? '<span class="record-type-badge productive">正事</span>'
-        : '<span class="record-type-badge other">其它</span>';
+        ? '<span class="record-type-badge productive' + typeBadgeClass + '" data-id="' + record.id + '" data-type="' + record.type + '">正事</span>'
+        : '<span class="record-type-badge other' + typeBadgeClass + '" data-id="' + record.id + '" data-type="' + record.type + '">其它</span>';
       var duration = Utils.formatDuration(record.productiveDuration || 0);
 
       html +=
@@ -423,9 +424,26 @@ var PageHistory = {
       });
     };
 
-    // Inline edit
+    // Inline edit description
     container.querySelectorAll('.record-desc').forEach(function(el) {
       attachDescEditor(el);
+    });
+
+    // Toggle type badge
+    container.querySelectorAll('.record-type-badge.clickable').forEach(function(badge) {
+      badge.addEventListener('click', function() {
+        var id = badge.getAttribute('data-id');
+        var currentType = badge.getAttribute('data-type');
+        var newType = currentType === 'productive' ? 'other' : 'productive';
+        if (!Store.updateRecord(user, id, { type: newType })) {
+          Toast.show(Store.getLastErrorMessage() || '更新失败');
+          return;
+        }
+        badge.setAttribute('data-type', newType);
+        badge.className = 'record-type-badge ' + (newType === 'productive' ? 'productive' : 'other') + ' clickable';
+        badge.textContent = newType === 'productive' ? '正事' : '其它';
+        Toast.show('已更新');
+      });
     });
   }
 };

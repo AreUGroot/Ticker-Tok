@@ -116,6 +116,31 @@ def init_db():
               ON pauses(record_id, sort_index);
             CREATE INDEX IF NOT EXISTS idx_suggestions_user_updated
               ON suggestions(user_id, updated_at DESC);
+
+            DROP TABLE IF EXISTS todos;
+
+            CREATE TABLE IF NOT EXISTS todos (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              content TEXT NOT NULL,
+              priority INTEGER NOT NULL DEFAULT 3,
+              planned_date TEXT NOT NULL DEFAULT '',
+              planned_time TEXT NOT NULL DEFAULT '',
+              deadline_date TEXT NOT NULL DEFAULT '',
+              deadline_time TEXT NOT NULL DEFAULT '',
+              estimated_hours INTEGER NOT NULL DEFAULT 0,
+              estimated_minutes INTEGER NOT NULL DEFAULT 0,
+              actual_hours INTEGER NOT NULL DEFAULT 0,
+              actual_minutes INTEGER NOT NULL DEFAULT 0,
+              actual_completed_at TEXT NOT NULL DEFAULT '',
+              completed INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_todos_user
+              ON todos(user_id, completed, priority);
             """
         )
 
@@ -561,9 +586,15 @@ class AppHandler(SimpleHTTPRequestHandler):
             return
         self._json_error(404, "NOT_FOUND", "Not found")
 
+    def do_DELETE(self):
+        if self.path.startswith("/api/"):
+            self._dispatch_api("DELETE")
+            return
+        self._json_error(404, "NOT_FOUND", "Not found")
+
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Allow", "GET,POST,PATCH,OPTIONS")
+        self.send_header("Allow", "GET,POST,PATCH,DELETE,OPTIONS")
         self.end_headers()
 
     def _dispatch_api(self, method):
@@ -596,6 +627,16 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._handle_post_suggestion()
             if method == "POST" and path == "/api/migration/localstorage":
                 return self._handle_migrate_localstorage()
+            if method == "GET" and path == "/api/todos":
+                return self._handle_get_todos()
+            if method == "POST" and path == "/api/todos":
+                return self._handle_post_todo()
+            if method == "PATCH" and path.startswith("/api/todos/"):
+                todo_id = path[len("/api/todos/"):]
+                return self._handle_patch_todo(todo_id)
+            if method == "DELETE" and path.startswith("/api/todos/"):
+                todo_id = path[len("/api/todos/"):]
+                return self._handle_delete_todo(todo_id)
             return self._json_error(404, "NOT_FOUND", "Unknown API endpoint")
         except sqlite3.Error as e:
             return self._json_error(500, "DB_ERROR", str(e))
@@ -798,12 +839,24 @@ class AppHandler(SimpleHTTPRequestHandler):
         if not isinstance(updates, dict):
             return self._json_error(400, "BAD_UPDATES", "updates must be an object")
 
-        new_desc = None
+        sets = []
+        params = []
         if "description" in updates:
-            new_desc = str(updates.get("description") or "")
+            sets.append("description = ?")
+            params.append(str(updates.get("description") or ""))
+        if "type" in updates:
+            new_type = str(updates.get("type") or "")
+            if new_type in ("productive", "other"):
+                sets.append("type = ?")
+                params.append(new_type)
 
-        if new_desc is None:
-            return self._json_error(400, "UNSUPPORTED_UPDATE", "Only description update is supported")
+        if not sets:
+            return self._json_error(400, "UNSUPPORTED_UPDATE", "No supported fields to update")
+
+        sets.append("updated_at = ?")
+        params.append(now_ms())
+        params.append(user_name)
+        params.append(legacy_id)
 
         with get_conn() as conn:
             current_user = self._require_current_user(conn)
@@ -812,13 +865,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             target = self._resolve_target_user(conn, current_user, user_name)
             if not target:
                 return
+            params[-2] = target["id"]
             cur = conn.execute(
-                """
-                UPDATE records
-                SET description = ?, updated_at = ?
-                WHERE user_id = ? AND legacy_record_id = ?
-                """,
-                (new_desc, now_ms(), target["id"], legacy_id),
+                f"UPDATE records SET {', '.join(sets)} WHERE user_id = ? AND legacy_record_id = ?",
+                params,
             )
             conn.commit()
             if cur.rowcount == 0:
@@ -857,6 +907,147 @@ class AppHandler(SimpleHTTPRequestHandler):
             saved = upsert_suggestion(conn, target["id"], text)
             conn.commit()
         return self._json_ok({"saved": bool(saved)})
+
+    def _handle_get_todos(self):
+        with get_conn() as conn:
+            current_user = self._require_current_user(conn)
+            if not current_user:
+                return
+            rows = conn.execute(
+                """
+                SELECT id, content, priority, planned_date, planned_time,
+                       deadline_date, deadline_time, estimated_hours, estimated_minutes,
+                       actual_hours, actual_minutes, actual_completed_at,
+                       completed, created_at, updated_at
+                FROM todos
+                WHERE user_id = ?
+                ORDER BY completed ASC, created_at DESC
+                """,
+                (current_user["id"],),
+            ).fetchall()
+            todos = []
+            for r in rows:
+                todos.append({
+                    "id": r["id"],
+                    "content": r["content"],
+                    "priority": r["priority"],
+                    "plannedDate": r["planned_date"],
+                    "plannedTime": r["planned_time"],
+                    "deadlineDate": r["deadline_date"],
+                    "deadlineTime": r["deadline_time"],
+                    "estimatedHours": r["estimated_hours"],
+                    "estimatedMinutes": r["estimated_minutes"],
+                    "actualHours": r["actual_hours"],
+                    "actualMinutes": r["actual_minutes"],
+                    "actualCompletedAt": r["actual_completed_at"],
+                    "completed": bool(r["completed"]),
+                    "createdAt": r["created_at"],
+                    "updatedAt": r["updated_at"],
+                })
+        return self._json_ok({"todos": todos})
+
+    def _handle_post_todo(self):
+        body = self._read_json()
+        content = str(body.get("content") or "").strip()
+        if not content:
+            return self._json_error(400, "MISSING_CONTENT", "content is required")
+        priority = _safe_int(body.get("priority"), 3)
+        if priority < 1 or priority > 5:
+            priority = 3
+        planned_date = str(body.get("plannedDate") or "").strip()
+        planned_time = str(body.get("plannedTime") or "").strip()
+        deadline_date = str(body.get("deadlineDate") or "").strip()
+        deadline_time = str(body.get("deadlineTime") or "").strip()
+        estimated_hours = _safe_int(body.get("estimatedHours"), 0)
+        estimated_minutes = _safe_int(body.get("estimatedMinutes"), 0)
+
+        with get_conn() as conn:
+            current_user = self._require_current_user(conn)
+            if not current_user:
+                return
+            ts = now_ms()
+            cur = conn.execute(
+                """
+                INSERT INTO todos (user_id, content, priority, planned_date, planned_time,
+                                   deadline_date, deadline_time, estimated_hours, estimated_minutes,
+                                   created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (current_user["id"], content, priority, planned_date, planned_time,
+                 deadline_date, deadline_time, estimated_hours, estimated_minutes, ts, ts),
+            )
+            conn.commit()
+        return self._json_ok({"todoId": cur.lastrowid})
+
+    def _handle_patch_todo(self, todo_id):
+        try:
+            todo_id = int(todo_id)
+        except (ValueError, TypeError):
+            return self._json_error(400, "BAD_ID", "Invalid todo id")
+
+        body = self._read_json()
+        with get_conn() as conn:
+            current_user = self._require_current_user(conn)
+            if not current_user:
+                return
+            existing = conn.execute(
+                "SELECT id FROM todos WHERE id = ? AND user_id = ?",
+                (todo_id, current_user["id"]),
+            ).fetchone()
+            if not existing:
+                return self._json_error(404, "NOT_FOUND", "Todo not found")
+
+            sets = []
+            params = []
+            for field, col in [("content", "content"),
+                               ("plannedDate", "planned_date"), ("plannedTime", "planned_time"),
+                               ("deadlineDate", "deadline_date"), ("deadlineTime", "deadline_time"),
+                               ("actualCompletedAt", "actual_completed_at")]:
+                if field in body:
+                    sets.append(f"{col} = ?")
+                    params.append(str(body[field] or "").strip())
+            for field, col in [("priority", "priority"),
+                               ("estimatedHours", "estimated_hours"), ("estimatedMinutes", "estimated_minutes"),
+                               ("actualHours", "actual_hours"), ("actualMinutes", "actual_minutes")]:
+                if field in body:
+                    sets.append(f"{col} = ?")
+                    params.append(_safe_int(body[field], 0))
+            if "completed" in body:
+                sets.append("completed = ?")
+                params.append(1 if body["completed"] else 0)
+
+            if not sets:
+                return self._json_error(400, "NO_UPDATES", "No fields to update")
+
+            sets.append("updated_at = ?")
+            params.append(now_ms())
+            params.append(todo_id)
+
+            conn.execute(
+                f"UPDATE todos SET {', '.join(sets)} WHERE id = ?",
+                params,
+            )
+            conn.commit()
+        return self._json_ok({"updated": True})
+
+    def _handle_delete_todo(self, todo_id):
+        try:
+            todo_id = int(todo_id)
+        except (ValueError, TypeError):
+            return self._json_error(400, "BAD_ID", "Invalid todo id")
+
+        with get_conn() as conn:
+            current_user = self._require_current_user(conn)
+            if not current_user:
+                return
+            cur = conn.execute(
+                "DELETE FROM todos WHERE id = ? AND user_id = ?",
+                (todo_id, current_user["id"]),
+            )
+            conn.commit()
+            if cur.rowcount == 0:
+                return self._json_error(404, "NOT_FOUND", "Todo not found")
+        return self._json_ok({"deleted": True})
 
     def _handle_migrate_localstorage(self):
         body = self._read_json()

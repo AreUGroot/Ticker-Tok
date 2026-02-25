@@ -72,6 +72,9 @@ var App = {
       case 'history':
         PageHistory.render(root);
         break;
+      case 'todo':
+        PageTodo.render(root);
+        break;
     }
 
     this._refreshMigrationButton();

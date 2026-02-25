@@ -151,6 +151,16 @@
   color: #1565C0;
 }
 
+.record-type-badge.clickable {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.record-type-badge.clickable:hover {
+  opacity: 0.7;
+  transform: scale(1.05);
+}
+
 .record-time {
   font-size: 14px;
   color: var(--text-secondary);
