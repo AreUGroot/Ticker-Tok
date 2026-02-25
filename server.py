@@ -117,8 +117,6 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_suggestions_user_updated
               ON suggestions(user_id, updated_at DESC);
 
-            DROP TABLE IF EXISTS todos;
-
             CREATE TABLE IF NOT EXISTS todos (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               user_id INTEGER NOT NULL,

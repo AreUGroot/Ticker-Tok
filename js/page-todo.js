@@ -56,6 +56,203 @@ var PageTodo = {
     return sign + parts.join('');
   },
 
+  _pad2: function(v) {
+    return String(v).padStart(2, '0');
+  },
+
+  _parseTime24: function(timeStr) {
+    var defaultParts = { hour: '12', minute: '00', ampm: 'PM' };
+    if (!timeStr || typeof timeStr !== 'string') return defaultParts;
+    var m = timeStr.match(/^(\d{2}):(\d{2})$/);
+    if (!m) return defaultParts;
+    var h24 = parseInt(m[1], 10);
+    var minute = this._pad2(parseInt(m[2], 10) || 0);
+    var ampm = h24 >= 12 ? 'PM' : 'AM';
+    var h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    return {
+      hour: this._pad2(h12),
+      minute: minute,
+      ampm: ampm
+    };
+  },
+
+  _composeTime24: function(hour12, minute, ampm) {
+    hour12 = parseInt(hour12, 10);
+    minute = parseInt(minute, 10);
+    if (!hour12 || hour12 < 1 || hour12 > 12) hour12 = 12;
+    if (isNaN(minute) || minute < 0 || minute > 59) minute = 0;
+    ampm = (ampm === 'AM' || ampm === 'PM') ? ampm : 'PM';
+    var h24 = hour12 % 12;
+    if (ampm === 'PM') h24 += 12;
+    return this._pad2(h24) + ':' + this._pad2(minute);
+  },
+
+  _renderTimeSelectFields: function(prefix, timeStr) {
+    var t = this._parseTime24(timeStr);
+    var hourOptions = '';
+    var minuteOptions = '';
+    var ampmOptions = '';
+    var i;
+    var minuteValues = [];
+    for (i = 1; i <= 12; i++) {
+      var hVal = this._pad2(i);
+      hourOptions += '<option value="' + hVal + '"' + (hVal === t.hour ? ' selected' : '') + '>' + hVal + '</option>';
+    }
+    for (i = 0; i <= 55; i += 5) {
+      minuteValues.push(this._pad2(i));
+    }
+    if (minuteValues.indexOf(t.minute) === -1) {
+      minuteValues.push(t.minute);
+      minuteValues.sort();
+    }
+    for (i = 0; i < minuteValues.length; i++) {
+      var mVal = minuteValues[i];
+      minuteOptions += '<option value="' + mVal + '"' + (mVal === t.minute ? ' selected' : '') + '>' + mVal + '</option>';
+    }
+    ['AM', 'PM'].forEach(function(part) {
+      ampmOptions += '<option value="' + part + '"' + (part === t.ampm ? ' selected' : '') + '>' + part + '</option>';
+    });
+
+    return (
+      '<div class="todo-time-select-row" data-prefix="' + prefix + '">' +
+        '<select id="' + prefix + '-hour" class="todo-time-input todo-time-select">' + hourOptions + '</select>' +
+        '<span class="todo-time-sep">:</span>' +
+        '<select id="' + prefix + '-minute" class="todo-time-input todo-time-select">' + minuteOptions + '</select>' +
+        '<select id="' + prefix + '-ampm" class="todo-time-input todo-time-select todo-time-select-ampm">' + ampmOptions + '</select>' +
+      '</div>'
+    );
+  },
+
+  _getTimeFromSelectFields: function(prefix) {
+    var hourEl = document.getElementById(prefix + '-hour');
+    var minEl = document.getElementById(prefix + '-minute');
+    var ampmEl = document.getElementById(prefix + '-ampm');
+    if (!hourEl || !minEl || !ampmEl) return '';
+    return this._composeTime24(hourEl.value, minEl.value, ampmEl.value);
+  },
+
+  _setTimeSelectFields: function(prefix, timeStr) {
+    var t = this._parseTime24(timeStr);
+    var hourEl = document.getElementById(prefix + '-hour');
+    var minEl = document.getElementById(prefix + '-minute');
+    var ampmEl = document.getElementById(prefix + '-ampm');
+    if (hourEl) hourEl.value = t.hour;
+    if (minEl) minEl.value = t.minute;
+    if (ampmEl) ampmEl.value = t.ampm;
+  },
+
+  _buildDateTimeTs: function(dateStr, timeStr) {
+    if (!dateStr || !timeStr) return null;
+    var d = new Date(dateStr + 'T' + timeStr + ':00');
+    if (isNaN(d.getTime())) return null;
+    return d.getTime();
+  },
+
+  _getCompletionTimelinessMeta: function(todo) {
+    if (!todo || !todo.completed || !todo.actualCompletedAt) return null;
+
+    var actualTs = this._parseStoredActualCompletedTs(todo.actualCompletedAt);
+    if (actualTs == null) return null;
+
+    var refLabel = '';
+    var refTs = null;
+    if (todo.deadlineDate && todo.deadlineTime) {
+      refTs = this._buildDateTimeTs(todo.deadlineDate, todo.deadlineTime);
+      refLabel = '截止';
+    } else if (todo.plannedDate && todo.plannedTime) {
+      refTs = this._buildDateTimeTs(todo.plannedDate, todo.plannedTime);
+      refLabel = '计划';
+    }
+    if (refTs == null) return null;
+
+    var diffMin = Math.round((actualTs - refTs) / 60000);
+    if (diffMin === 0) {
+      return {
+        label: refLabel,
+        text: '准时',
+        className: 'todo-meta-timing-on-time'
+      };
+    }
+
+    var abs = Math.abs(diffMin);
+    var h = Math.floor(abs / 60);
+    var m = abs % 60;
+    var parts = [];
+    if (h) parts.push(h + '小时');
+    if (m || parts.length === 0) parts.push(m + '分钟');
+
+    return {
+      label: refLabel,
+      text: (diffMin < 0 ? '提前' : '滞后') + parts.join(''),
+      className: diffMin < 0 ? 'todo-meta-timing-early' : 'todo-meta-timing-late'
+    };
+  },
+
+  _parseStoredActualCompletedTs: function(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    var m = raw.match(/^(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?$/);
+    if (!m) return null;
+    var dateStr = m[1];
+    var timeStr = m[2] || '00:00';
+    return this._buildDateTimeTs(dateStr, timeStr);
+  },
+
+  _formatStoredActualCompletedAt: function(raw) {
+    if (!raw) return '';
+    if (typeof raw !== 'string') return String(raw);
+    var m = raw.match(/^(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?$/);
+    if (!m) return raw;
+    var dateStr = m[1];
+    var timeStr = m[2] || '';
+    var text = this._formatDateFull(dateStr);
+    if (timeStr) text += ' ' + timeStr;
+    return text;
+  },
+
+  _renderDatePickerTrigger: function(inputId, value, displayId, buttonId) {
+    var displayText = value ? this._formatDateFull(value) : '选择日期';
+    return (
+      '<div class="todo-date-picker-wrap">' +
+        '<input type="date" id="' + inputId + '" class="todo-date-input todo-date-input-hidden" value="' + (value || '') + '">' +
+        '<button type="button" id="' + buttonId + '" class="todo-date-picker-trigger">' +
+          '<span class="todo-date-picker-icon" aria-hidden="true"></span>' +
+          '<span id="' + displayId + '" class="todo-date-picker-value' + (value ? '' : ' placeholder') + '">' +
+            this._escHtml(displayText) +
+          '</span>' +
+        '</button>' +
+      '</div>'
+    );
+  },
+
+  _bindDatePickerTrigger: function(inputId, buttonId, displayId, weekdayId) {
+    var self = this;
+    var input = document.getElementById(inputId);
+    var btn = document.getElementById(buttonId);
+    var display = document.getElementById(displayId);
+    var weekday = weekdayId ? document.getElementById(weekdayId) : null;
+    if (!input || !btn || !display) return;
+
+    var refresh = function() {
+      var hasValue = !!input.value;
+      display.textContent = hasValue ? self._formatDateFull(input.value) : '选择日期';
+      display.classList.toggle('placeholder', !hasValue);
+      if (weekday) {
+        weekday.textContent = hasValue ? self._getWeekday(input.value) : '';
+      }
+    };
+
+    btn.addEventListener('click', function() {
+      if (typeof input.showPicker === 'function') {
+        input.showPicker();
+      } else {
+        input.click();
+      }
+    });
+    input.addEventListener('change', refresh);
+    refresh();
+  },
+
   render: function(root) {
     root.innerHTML = '';
 
@@ -225,8 +422,15 @@ var PageTodo = {
         '</span>';
       }
       if (todo.actualCompletedAt) {
+        var actualDisplay = this._formatStoredActualCompletedAt(todo.actualCompletedAt);
         metaHtml += '<span class="todo-meta-item todo-meta-actual">' +
-          '<span class="todo-meta-icon">&#128336;</span> 完成于: ' + this._escHtml(todo.actualCompletedAt) +
+          '<span class="todo-meta-icon">&#128336;</span> 完成于: ' + this._escHtml(actualDisplay) +
+        '</span>';
+      }
+      var timingMeta = this._getCompletionTimelinessMeta(todo);
+      if (timingMeta) {
+        metaHtml += '<span class="todo-meta-item ' + timingMeta.className + '">' +
+          '<span class="todo-meta-icon">&#9200;</span> ' + this._escHtml(timingMeta.label + '：' + timingMeta.text) +
         '</span>';
       }
     }
@@ -343,32 +547,38 @@ var PageTodo = {
         '<div class="todo-time-row">' +
           '<div class="todo-time-col">' +
             '<label>计划完成日期</label>' +
-            '<input type="date" id="todo-planned-date" class="todo-date-input" value="' +
-              (isEdit ? (editTodo.plannedDate || '') : '') + '">' +
+            this._renderDatePickerTrigger(
+              'todo-planned-date',
+              isEdit ? (editTodo.plannedDate || '') : '',
+              'todo-planned-date-display',
+              'todo-planned-date-btn'
+            ) +
             '<div class="todo-weekday-hint" id="todo-planned-weekday">' +
               (isEdit && editTodo.plannedDate ? this._getWeekday(editTodo.plannedDate) : '') +
             '</div>' +
           '</div>' +
           '<div class="todo-time-col">' +
             '<label>计划完成时刻</label>' +
-            '<input type="time" id="todo-planned-time" class="todo-time-input" value="' +
-              (isEdit ? (editTodo.plannedTime || '') : '') + '">' +
+            this._renderTimeSelectFields('todo-planned-time', isEdit ? (editTodo.plannedTime || '') : '') +
           '</div>' +
         '</div>' +
 
         '<div class="todo-time-row">' +
           '<div class="todo-time-col">' +
             '<label>截止日期</label>' +
-            '<input type="date" id="todo-deadline-date" class="todo-date-input" value="' +
-              (isEdit ? (editTodo.deadlineDate || '') : '') + '">' +
+            this._renderDatePickerTrigger(
+              'todo-deadline-date',
+              isEdit ? (editTodo.deadlineDate || '') : '',
+              'todo-deadline-date-display',
+              'todo-deadline-date-btn'
+            ) +
             '<div class="todo-weekday-hint" id="todo-deadline-weekday">' +
               (isEdit && editTodo.deadlineDate ? this._getWeekday(editTodo.deadlineDate) : '') +
             '</div>' +
           '</div>' +
           '<div class="todo-time-col">' +
             '<label>截止时刻</label>' +
-            '<input type="time" id="todo-deadline-time" class="todo-time-input" value="' +
-              (isEdit ? (editTodo.deadlineTime || '') : '') + '">' +
+            this._renderTimeSelectFields('todo-deadline-time', isEdit ? (editTodo.deadlineTime || '') : '') +
           '</div>' +
         '</div>' +
 
@@ -408,12 +618,20 @@ var PageTodo = {
     });
     this._bindStarPicker(starPicker);
 
-    // Weekday hints on date change
-    document.getElementById('todo-planned-date').addEventListener('change', function() {
-      document.getElementById('todo-planned-weekday').textContent = self._getWeekday(this.value);
-    });
-    document.getElementById('todo-deadline-date').addEventListener('change', function() {
-      document.getElementById('todo-deadline-weekday').textContent = self._getWeekday(this.value);
+    // Date pickers (icon button opens native calendar)
+    this._bindDatePickerTrigger('todo-planned-date', 'todo-planned-date-btn', 'todo-planned-date-display', 'todo-planned-weekday');
+    this._bindDatePickerTrigger('todo-deadline-date', 'todo-deadline-date-btn', 'todo-deadline-date-display', 'todo-deadline-weekday');
+
+    // When planned time changes, auto-fill deadline time (user can still change deadline afterward).
+    var syncDeadlineTimeFromPlanned = function() {
+      var plannedTime = self._getTimeFromSelectFields('todo-planned-time');
+      self._setTimeSelectFields('todo-deadline-time', plannedTime);
+    };
+    ['hour', 'minute', 'ampm'].forEach(function(part) {
+      var el = document.getElementById('todo-planned-time-' + part);
+      if (el) {
+        el.addEventListener('change', syncDeadlineTimeFromPlanned);
+      }
     });
 
     // Focus content
@@ -442,9 +660,9 @@ var PageTodo = {
         content: content,
         priority: priority,
         plannedDate: document.getElementById('todo-planned-date').value,
-        plannedTime: document.getElementById('todo-planned-time').value,
+        plannedTime: self._getTimeFromSelectFields('todo-planned-time'),
         deadlineDate: document.getElementById('todo-deadline-date').value,
-        deadlineTime: document.getElementById('todo-deadline-time').value,
+        deadlineTime: self._getTimeFromSelectFields('todo-deadline-time'),
         estimatedHours: parseInt(document.getElementById('todo-est-hours').value) || 0,
         estimatedMinutes: parseInt(document.getElementById('todo-est-minutes').value) || 0,
       };
@@ -608,7 +826,7 @@ var PageTodo = {
       var completedTime = document.getElementById('complete-time').value;
       var completedAt = '';
       if (completedDate) {
-        completedAt = PageTodo._formatDateFull(completedDate);
+        completedAt = completedDate;
         if (completedTime) completedAt += ' ' + completedTime;
       }
 
