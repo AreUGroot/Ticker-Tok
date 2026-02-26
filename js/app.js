@@ -26,6 +26,9 @@ var App = {
     document.getElementById('btn-migrate-local').addEventListener('click', function() {
       App._runLegacyMigration(true);
     });
+    document.getElementById('btn-change-password').addEventListener('click', function() {
+      App._showChangePasswordDialog();
+    });
 
     // Check login state
     if (Store.getCurrentUser()) {
@@ -156,6 +159,86 @@ var App = {
     if (this.currentPage === 'history') {
       this.navigate('history');
     }
+  },
+
+  _showChangePasswordDialog: function() {
+    if (!Store.getCurrentUser()) {
+      Toast.show('请先登录');
+      return;
+    }
+    if (document.getElementById('change-password-modal')) {
+      return;
+    }
+
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'change-password-modal';
+    overlay.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="change-pass-title">' +
+        '<h3 id="change-pass-title">修改密码</h3>' +
+        '<label for="change-pass-old">当前密码</label>' +
+        '<input type="password" id="change-pass-old" autocomplete="current-password">' +
+        '<label for="change-pass-new">新密码</label>' +
+        '<input type="password" id="change-pass-new" autocomplete="new-password">' +
+        '<label for="change-pass-confirm">确认新密码</label>' +
+        '<input type="password" id="change-pass-confirm" autocomplete="new-password">' +
+        '<div class="modal-help">新密码至少 4 位</div>' +
+        '<div class="modal-actions">' +
+          '<button type="button" class="btn" id="btn-change-pass-cancel">取消</button>' +
+          '<button type="button" class="btn btn-primary" id="btn-change-pass-submit">保存</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+
+    function closeDialog() {
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+    }
+
+    function submitChange() {
+      var oldPassword = document.getElementById('change-pass-old').value;
+      var newPassword = document.getElementById('change-pass-new').value;
+      var confirmPassword = document.getElementById('change-pass-confirm').value;
+
+      if (!oldPassword || !newPassword || !confirmPassword) {
+        Toast.show('请填写完整');
+        return;
+      }
+      if (newPassword.length < 4) {
+        Toast.show('新密码至少 4 位');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        Toast.show('两次输入的新密码不一致');
+        return;
+      }
+
+      var result = Auth.changePassword(oldPassword, newPassword);
+      if (!result || !result.ok) {
+        Toast.show((result && result.message) || '修改密码失败');
+        return;
+      }
+
+      closeDialog();
+      Toast.show('密码修改成功');
+    }
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) {
+        closeDialog();
+      }
+    });
+    document.getElementById('btn-change-pass-cancel').addEventListener('click', closeDialog);
+    document.getElementById('btn-change-pass-submit').addEventListener('click', submitChange);
+    ['change-pass-old', 'change-pass-new', 'change-pass-confirm'].forEach(function(id) {
+      document.getElementById(id).addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') submitChange();
+        if (e.key === 'Escape') closeDialog();
+      });
+    });
+    document.getElementById('change-pass-old').focus();
   }
 };
 

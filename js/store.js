@@ -1,7 +1,7 @@
 var Store = {
   // Legacy browser-only data key (used for migration import).
   KEY: 'ticker_tok_data',
-  DEFAULT_USERS: ['Lin', 'Qingli', 'Ke', 'Yifeng', 'Jimmy'],
+  DEFAULT_USERS: ['Lin', 'Qingli', 'Ke', 'Yifeng', 'Jimmy', 'Shangli'],
   MIGRATION_PROMPT_PREFIX: 'ticker_tok_migration_prompted_',
 
   _currentUser: undefined,
@@ -102,6 +102,20 @@ var Store = {
     this._api('POST', '/api/auth/logout', {});
     this._currentUser = null;
     return true;
+  },
+
+  changePassword: function(oldPassword, newPassword) {
+    var res = this._api('POST', '/api/auth/change-password', {
+      oldPassword: oldPassword,
+      newPassword: newPassword
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        return { ok: false, message: '旧密码错误' };
+      }
+      return { ok: false, message: this.getLastErrorMessage() || '修改密码失败' };
+    }
+    return { ok: true };
   },
 
   getCurrentUser: function() {

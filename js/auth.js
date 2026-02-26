@@ -8,6 +8,10 @@ var Auth = {
     App.navigate('login');
   },
 
+  changePassword: function(oldPassword, newPassword) {
+    return Store.changePassword(oldPassword, newPassword);
+  },
+
   getCurrentUser: function() {
     return Store.getCurrentUser();
   }

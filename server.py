@@ -16,8 +16,11 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "ticker_tok.sqlite3"
 
-DEFAULT_USERS = ["Lin", "Qingli", "Ke", "Yifeng", "Jimmy"]
+DEFAULT_USERS = ["Lin", "Qingli", "Ke", "Yifeng", "Jimmy", "Shangli"]
 DEFAULT_PASSWORD = "888888"
+SPECIAL_USER_PASSWORDS = {
+    "Shangli": "happyresearch",
+}
 SESSION_COOKIE = "ticker_tok_session"
 SESSION_TTL_SECONDS = 14 * 24 * 60 * 60
 
@@ -144,12 +147,13 @@ def init_db():
 
         ts = now_ms()
         for name in DEFAULT_USERS:
+            seed_password = SPECIAL_USER_PASSWORDS.get(name, DEFAULT_PASSWORD)
             conn.execute(
                 """
                 INSERT OR IGNORE INTO users (username, password_hash, is_admin, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (name, hash_password(DEFAULT_PASSWORD), 1 if name == "Lin" else 0, ts, ts),
+                (name, hash_password(seed_password), 1 if name == "Lin" else 0, ts, ts),
             )
         conn.commit()
 
@@ -610,6 +614,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self._handle_auth_login()
             if method == "POST" and path == "/api/auth/logout":
                 return self._handle_auth_logout()
+            if method == "POST" and path == "/api/auth/change-password":
+                return self._handle_auth_change_password()
             if method == "GET" and path == "/api/records":
                 return self._handle_get_records(query)
             if method == "GET" and path == "/api/records/dates":
@@ -773,6 +779,30 @@ class AppHandler(SimpleHTTPRequestHandler):
         delete_session(token)
         headers = [("Set-Cookie", self._clear_cookie_header())]
         return self._json_ok({"loggedOut": True}, extra_headers=headers)
+
+    def _handle_auth_change_password(self):
+        body = self._read_json()
+        old_password = str(body.get("oldPassword") or "")
+        new_password = str(body.get("newPassword") or "")
+        if not old_password or not new_password:
+            return self._json_error(400, "MISSING_PASSWORD", "oldPassword and newPassword are required")
+        if len(new_password) < 4:
+            return self._json_error(400, "WEAK_PASSWORD", "New password must be at least 4 characters")
+
+        with get_conn() as conn:
+            current_user = self._require_current_user(conn)
+            if not current_user:
+                return
+            if current_user["password_hash"] != hash_password(old_password):
+                return self._json_error(401, "INVALID_OLD_PASSWORD", "Old password is incorrect")
+
+            conn.execute(
+                "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
+                (hash_password(new_password), now_ms(), current_user["id"]),
+            )
+            conn.commit()
+
+        return self._json_ok({"changed": True})
 
     def _handle_get_records(self, query):
         user_name = (query.get("user") or [""])[0].strip()
@@ -1117,7 +1147,10 @@ def main():
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     print("Ticker-Tok server running on http://%s:%s" % (args.host, args.port))
     print("SQLite DB: %s" % DB_PATH)
-    print("Default password for seeded users: %s" % DEFAULT_PASSWORD)
+    print("Default password for seeded users (unless overridden): %s" % DEFAULT_PASSWORD)
+    if SPECIAL_USER_PASSWORDS:
+        pairs = ", ".join("%s=%s" % (k, v) for k, v in sorted(SPECIAL_USER_PASSWORDS.items()))
+        print("Special seeded passwords: %s" % pairs)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

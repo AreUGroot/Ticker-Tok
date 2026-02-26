@@ -210,6 +210,7 @@ body {
 }
 
 .modal input[type="text"],
+.modal input[type="password"],
 .modal textarea {
   width: 100%;
   padding: 10px 12px;
@@ -222,8 +223,15 @@ body {
 }
 
 .modal input[type="text"]:focus,
+.modal input[type="password"]:focus,
 .modal textarea:focus {
   border-color: var(--primary);
+}
+
+.modal-help {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
 }
 
 .modal textarea {
